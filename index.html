@@ -1,32 +1,26 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>Smackoid</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
   <style>
-    :root{ --bg:#070b14; --bg2:#0b1220; --fg:#e8f0ff; --muted:#90a0c0; --line:rgba(255,255,255,.1); }
-    html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--fg);font-family:system-ui,Segoe UI,Inter,Arial,sans-serif}
+    html,body{margin:0;height:100%;background:#070b14;color:#e8f0ff;font-family:system-ui,Segoe UI,Inter,Arial,sans-serif}
     #gameCanvas{position:relative;width:100vw;height:100vh}
-    canvas#stars{position:fixed;inset:0;z-index:-1}
-    .hud{position:fixed; top:12px; left:12px; background:rgba(10,14,24,.7); border:1px solid var(--line); border-radius:12px; padding:10px 14px; backdrop-filter: blur(6px)}
+    .hud{position:fixed; top:12px; left:12px; background:rgba(10,14,24,.7); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:10px 14px; backdrop-filter: blur(6px)}
     .hud h3{margin:0 0 6px 0; font-size:14px; color:#cfe6ff}
     .row{display:flex;gap:18px;align-items:center}
     .label{font-size:13px;color:#c7d3ee}
     .value{font-weight:800}
-    .muted{color:var(--muted); font-size:12px}
-    .centerNote{
-      position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
-      padding:10px 14px; border-radius:12px; border:1px solid var(--line);
-      background:rgba(10,14,24,.65); color:#e8f0ff; font-weight:700; display:none
-    }
+    .muted{color:#90a0c0; font-size:12px}
+    .centerNote{position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+      padding:10px 14px; border-radius:12px; border:1px solid rgba(255,255,255,.1);
+      background:rgba(10,14,24,.65); color:#e8f0ff; font-weight:700; display:none}
   </style>
 </head>
 <body>
-  <canvas id="stars"></canvas>
   <div id="gameCanvas"></div>
-
   <div class="hud">
     <h3>Smackoid</h3>
     <div class="row">
@@ -34,67 +28,35 @@
       <div class="label">Distance:</div><div id="dist" class="value">0 m</div>
       <div class="label">Best:</div><div id="best" class="value">0 m</div>
     </div>
-    <div class="muted">Houd <b>SPATIE</b> vast om power te laden. <b>Laat los</b> om te slaan. Mis = pech • Na landen: <b>SPATIE</b> om opnieuw.</div>
+    <div class="muted">PC: Hold <b>SPACE</b> to charge power. <b>Release</b> to hit.<br>Mobile: Hold <b>your finger</b> on the screen and release to hit.</div>
   </div>
-
-  <!-- Fallback-sprite -->
   <img id="sprite" src="assets/cz-droid.png" alt="" style="display:none" />
   <div id="centerMsg" class="centerNote"></div>
 
 <script>
-/* ===== Sterrenachtergrond ===== */
-(() => {
-  const c=document.getElementById('stars'),x=c.getContext('2d');
-  const DPR=Math.max(1,Math.min(2,window.devicePixelRatio||1));
-  let w,h,stars=[];
-  function resize(){ w=c.width=innerWidth*DPR; h=c.height=innerHeight*DPR;
-    stars=Array.from({length:180},()=>({x:Math.random()*w,y:Math.random()*h,z:.3+Math.random()*.7,r:.6+Math.random()*1.6}));
-  }
-  function tick(){
-    x.clearRect(0,0,w,h); x.fillStyle="#061022"; x.fillRect(0,0,w,h);
-    for(const s of stars){
-      s.x -= (20*s.z*0.08);
-      if(s.x<-4){ s.x=w+Math.random()*40; s.y=Math.random()*h; s.z=.3+Math.random()*.7; }
-      x.globalAlpha=0.4+s.z*0.6; x.beginPath(); x.arc(s.x,s.y,s.r*DPR,0,Math.PI*2); x.fillStyle="#e8f0ff"; x.fill();
-    }
-    requestAnimationFrame(tick);
-  }
-  resize(); addEventListener('resize',resize); tick();
-})();
-</script>
-
-<script>
-/* ================= Game (met camera & krachtiger impact) ================= */
 let asteroidImg=null, p5Ready=false;
 let htmlImg=null, htmlReady=false;
 
-/* --- Wereld / physics --- */
 const GROUND_Y=520;
-const GRAVITY=0.55;            // iets lichter → langere vlucht
-const DRAG_COEFF=0.0012;       // minder luchtweerstand
-const WIND_BASE=0.0006;        // klein briesje
+const GRAVITY=0.55;
+const DRAG_COEFF=0.0012;
+const WIND_BASE=0.0006;
 let wind=0;
 
-/* Launch-boost fase (eerste ~0.6s) */
-const LAUNCH_FRAMES = 36;      // ~36 frames ≈ 0.6s bij 60fps
-const LAUNCH_GRAVITY_SCALE = 0.8; // 80% van gravity
-const LAUNCH_DRAG_SCALE    = 0.45; // 45% van drag
+const LAUNCH_FRAMES = 36;
+const LAUNCH_GRAVITY_SCALE = 0.8;
+const LAUNCH_DRAG_SCALE    = 0.45;
 
-/* --- Posities --- */
-const BATTER_X = Math.floor(window.innerWidth * 0.16); // links
-const HIT_OFFSET = 90;                 // x van steen t.o.v. batter.x
-const SWEET_CENTER_Y = GROUND_Y - 90;  // knuppelhoogte
-const SWEET_HALF = 34;                 // venster-grootte
+const BATTER_X = Math.floor(window.innerWidth * 0.16);
+const HIT_OFFSET = 90;
+const SWEET_CENTER_Y = GROUND_Y - 90;
+const SWEET_HALF = 34;
 
-/* --- Camera --- */
 let camX = 0;
 const CAM_LEAD = 0.35;
 const CAM_EASE = 0.08;
-let camShake = 0;               // simpele shake amplitude
-let camShakeT = 0;
+let camShake = 0, camShakeT = 0;
 
-/* --- State --- */
-// drop -> charge (hold) -> swing -> flight -> end
 let phase='drop';
 let asteroid={ x: BATTER_X + HIT_OFFSET, y:-150, vx:0, vy:0, r:70 };
 
@@ -102,23 +64,18 @@ let batter={ x: BATTER_X, y: GROUND_Y-20, swingT:0, swinging:false };
 const SWING_START = -Math.PI*0.60, SWING_IMPACT_T=0.35, SWING_END = -Math.PI*0.15;
 function armAngle(){ return lerp(SWING_START, SWING_END, batter.swinging ? constrain(batter.swingT,0,1) : 0); }
 
-/* --- Score --- */
 let distance=0, bestDistance=0, mcap=0;
 
-/* --- Power (hold → release, ping-pong) --- */
 let charging=false, charge=0, chargeDir=1;
 const CHARGE_SPEED = 0.028;
 
-/* --- Impactplanning --- */
 let pendingHit=false, plannedV=null, locked=false;
-let flightFrames=0;            // hoeveel frames in flight sinds impact
+let flightFrames=0;
 
-/* --- UI --- */
 const centerMsgEl = document.getElementById('centerMsg');
 const showCenter = (msg)=>{ centerMsgEl.textContent=msg; centerMsgEl.style.display='block'; };
 const hideCenter = ()=>{ centerMsgEl.style.display='none'; };
 
-/* --- Setup --- */
 function setup(){
   const cnv=createCanvas(960,600); cnv.parent('gameCanvas');
   imageMode(CENTER); textFont('system-ui');
@@ -130,38 +87,42 @@ function setup(){
 
   resetRound(false);
 
-  // Alleen SPATIE
+  // --- Keyboard
   addEventListener('keydown', e => {
-    if(e.code==='Space'){ e.preventDefault();
-      if (phase==='end'){ resetRound(true); return; }        // herstart
-      if (!locked && !charging && (phase==='drop' || phase==='charge')){
-        charging=true; phase='charge';
-      }
-    }
+    if(e.code==='Space'){ e.preventDefault(); handlePress(); }
+  }, {passive:false});
+  addEventListener('keyup', e => {
+    if(e.code==='Space'){ e.preventDefault(); handleRelease(); }
   }, {passive:false});
 
-  addEventListener('keyup', e => {
-    if(e.code==='Space'){ e.preventDefault();
-      if (phase==='end'){ resetRound(true); return; }
-      if (!locked && charging){
-        charging=false; locked=true;                          // één kans
-        decideImpact();                                       // hit of whiff
-        phase='swing'; batter.swinging=true; batter.swingT=0;
-      }
-    }
-  }, {passive:false});
+  // --- Touch
+  addEventListener('touchstart', e => { e.preventDefault(); handlePress(); }, {passive:false});
+  addEventListener('touchend', e => { e.preventDefault(); handleRelease(); }, {passive:false});
 }
 
-/* --- Main loop --- */
+function handlePress(){
+  if (phase==='end'){ resetRound(true); return; }
+  if (!locked && !charging && (phase==='drop' || phase==='charge')){
+    charging=true; phase='charge';
+  }
+}
+function handleRelease(){
+  if (phase==='end'){ resetRound(true); return; }
+  if (!locked && charging){
+    charging=false; locked=true;
+    decideImpact();
+    phase='swing'; batter.swinging=true; batter.swingT=0;
+  }
+}
+
 function draw(){
   clear();
 
-  /* ---- Camera volgen + shake ---- */
-  let shakeX = 0;
+  let shakeX=0;
   if (camShake > 0){
     camShakeT += 0.3;
     shakeX = Math.sin(camShakeT*12) * camShake;
-    camShake *= 0.9; // snel uitdempen
+    camShake *= 0.9;
     if (camShake < 0.1) camShake = 0;
   }
 
@@ -173,15 +134,12 @@ function draw(){
   }
 
   drawHorizon(shakeX);
-  drawWindFlag();
   drawBatter(shakeX);
 
-  // HUD
   byId('mcap').textContent = `${mcap.toFixed(1)} B`;
   byId('dist').textContent = `${Math.floor(distance)} m`;
   byId('best').textContent = `${Math.floor(bestDistance)} m`;
 
-  // Power ping-pong zolang je vasthoudt
   if ((phase==='drop' || phase==='charge') && charging){
     phase='charge';
     charge += CHARGE_SPEED * chargeDir;
@@ -190,10 +148,10 @@ function draw(){
   }
 
   if(phase==='drop' || phase==='charge'){
-    asteroid.y += 5;
+    asteroid.y += 8; // faster falling speed
     if (asteroid.y >= GROUND_Y - asteroid.r){
       asteroid.y = GROUND_Y - asteroid.r;
-      phase='end'; showCenter('Opnieuw? Druk SPATIE'); bestDistance=Math.max(bestDistance,distance);
+      phase='end'; showCenter('Restart? Press SPACE or Tap'); bestDistance=Math.max(bestDistance,distance);
     }
     drawAsteroid(shakeX);
   }
@@ -202,7 +160,7 @@ function draw(){
       asteroid.vx = plannedV.vx; asteroid.vy = plannedV.vy;
       pendingHit=false; plannedV=null;
       flightFrames=0;
-      camShake = 6; camShakeT = 0;      // kleine impact shake
+      camShake = 6; camShakeT = 0;
     }
     drawAsteroid(shakeX);
     batter.swingT += 0.20;
@@ -212,22 +170,18 @@ function draw(){
     }
   }
   else if(phase==='flight'){
-    // Launch-fase: tijdelijk minder zwaartekracht & drag
     const launchPhase = flightFrames < LAUNCH_FRAMES;
     const g = launchPhase ? GRAVITY * LAUNCH_GRAVITY_SCALE : GRAVITY;
     const dragCoeff = launchPhase ? DRAG_COEFF * LAUNCH_DRAG_SCALE : DRAG_COEFF;
 
-    // luchtweerstand (zwakker in launch)
     const v = Math.hypot(asteroid.vx, asteroid.vy);
     const drag = dragCoeff * v;
     asteroid.vx -= drag * asteroid.vx;
     asteroid.vy -= drag * asteroid.vy;
 
-    // wind en zwaartekracht
     asteroid.vx += wind;
     asteroid.vy += g;
 
-    // positie
     asteroid.x += asteroid.vx;
     asteroid.y += asteroid.vy;
 
@@ -238,7 +192,7 @@ function draw(){
 
     if(asteroid.y >= GROUND_Y - asteroid.r){
       asteroid.y = GROUND_Y - asteroid.r;
-      phase='end'; showCenter('Opnieuw? Druk SPATIE'); bestDistance=Math.max(bestDistance,distance);
+      phase='end'; showCenter('Restart? Press SPACE or Tap'); bestDistance=Math.max(bestDistance,distance);
     }
 
     flightFrames++;
@@ -250,37 +204,25 @@ function draw(){
   drawPowerMeter();
 }
 
-/* ===== Impactbeslissing (veel krachtiger) ===== */
 function decideImpact(){
   const dy = asteroid.y - SWEET_CENTER_Y;
   const within = Math.abs(dy) <= SWEET_HALF;
   if (!within){ pendingHit=false; plannedV=null; return; }
 
-  const q = 1 - Math.min(1, Math.abs(dy)/SWEET_HALF); // 0..1 kwaliteit
-
-  // power-curve: maak hoge power relatief zwaarder (curve 1.2)
+  const q = 1 - Math.min(1, Math.abs(dy)/SWEET_HALF);
   const curved = Math.pow(charge, 1.2);
 
-  // basis 18..42 met kwaliteitsschaal 0.75..1.15
   let baseStrength = 18 + curved*(42-18);
-  baseStrength *= (0.75 + 0.40*q); // 0.75..1.15
+  baseStrength *= (0.75 + 0.40*q);
+  if (Math.abs(dy) <= SWEET_HALF*0.20) baseStrength *= 1.35;
 
-  // sweet-spot bonus (middelste 20% van venster): ×1.35
-  if (Math.abs(dy) <= SWEET_HALF*0.20) {
-    baseStrength *= 1.35;
-  }
-
-  // hoek uit kwaliteit (26°..62°)
   const angle = radians(26 + 36*q);
-
   plannedV = { vx: Math.cos(angle)*baseStrength, vy: -Math.sin(angle)*baseStrength };
   pendingHit = true;
 
-  // kleine variatie in wind per slag
   if (Math.random() < 0.5) wind = (Math.random()*2-1) * WIND_BASE;
 }
 
-/* ===== Reset ===== */
 function resetRound(newWind=true){
   hideCenter();
   phase='drop';
@@ -295,7 +237,6 @@ function resetRound(newWind=true){
   flightFrames=0;
 }
 
-/* ===== Tekenen (rekening houden met camX & shake) ===== */
 function drawAsteroid(shakeX=0){
   const sx = (asteroid.x - camX) + shakeX;
   if(p5Ready && asteroidImg){
@@ -325,35 +266,27 @@ function drawPowerMeter(){
   const p = (phase==='charge' && (charge>0 || charging)) ? charge : 0;
   noStroke(); fill(110,231,255,180);
   rect(x+2,y+2,(w-4)*p,h-4,6);
-  fill(200); textSize(12); textAlign(LEFT,TOP); text('Power (hold → release)',x,y+h+4);
-}
-
-function drawWindFlag(){
-  const x=20,y=GROUND_Y-40,len=80*constrain(wind*160,-1,1);
-  stroke(180,220,255,180); strokeWeight(2); line(x,y,x+len,y);
-  noStroke(); fill(200); textSize(12); text('Wind',x,y-14);
+  fill(200); textSize(12); textAlign(LEFT,TOP); text('Power',x,y+h+4);
 }
 
 function drawBatter(shakeX=0){
   const sx = (batter.x - camX) + shakeX;
   if (sx < -60 || sx > width+60) return;
-
   push(); translate(sx,batter.y);
   stroke(220); strokeWeight(4);
-  line(0,0,-10,20); line(0,0,10,20); // benen
-  line(0,-20,0,0);                   // romp
-  noStroke(); fill(240); circle(0,-28,14); // hoofd
+  line(0,0,-10,20); line(0,0,10,20);
+  line(0,-20,0,0);
+  noStroke(); fill(240); circle(0,-28,14);
   stroke(220); strokeWeight(4);
   const a = armAngle();
   const handX = 0 + Math.cos(a)*22, handY = -12 + Math.sin(a)*22;
-  line(0,-12, handX, handY);            // swing-arm
-  line(0,-12, -16, -6);                 // steun-arm
-  stroke(255,210,120); strokeWeight(6); // knuppel
+  line(0,-12, handX, handY);
+  line(0,-12, -16, -6);
+  stroke(255,210,120); strokeWeight(6);
   line(handX, handY, handX + Math.cos(a)*26, handY + Math.sin(a)*26);
   pop();
 }
 
-/* ===== Utils ===== */
 function byId(id){ return document.getElementById(id); }
 </script>
 </body>
