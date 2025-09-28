@@ -42,7 +42,7 @@
   <div id="centerMsg" class="centerNote"></div>
 
 <script>
-/* ===== Sterrenachtergrond (zelfde) ===== */
+/* ===== Sterrenachtergrond ===== */
 (() => {
   const c=document.getElementById('stars'),x=c.getContext('2d');
   const DPR=Math.max(1,Math.min(2,window.devicePixelRatio||1));
@@ -64,22 +64,34 @@
 </script>
 
 <script>
-/* ================= Game ================= */
+/* ================= Game (met camera & krachtiger impact) ================= */
 let asteroidImg=null, p5Ready=false;
 let htmlImg=null, htmlReady=false;
 
 /* --- Wereld / physics --- */
 const GROUND_Y=520;
-const GRAVITY=0.60;           // iets zwaarder
-const DRAG_COEFF=0.0022;      // snelheid-afhankelijke luchtweerstand
-const WIND_BASE=0.0008;       // licht briesje
+const GRAVITY=0.55;            // iets lichter → langere vlucht
+const DRAG_COEFF=0.0012;       // minder luchtweerstand
+const WIND_BASE=0.0006;        // klein briesje
 let wind=0;
+
+/* Launch-boost fase (eerste ~0.6s) */
+const LAUNCH_FRAMES = 36;      // ~36 frames ≈ 0.6s bij 60fps
+const LAUNCH_GRAVITY_SCALE = 0.8; // 80% van gravity
+const LAUNCH_DRAG_SCALE    = 0.45; // 45% van drag
 
 /* --- Posities --- */
 const BATTER_X = Math.floor(window.innerWidth * 0.16); // links
-const HIT_OFFSET = 90; // x van steen t.o.v. batter.x
-const SWEET_CENTER_Y = GROUND_Y - 90; // knuppelhoogte
-const SWEET_HALF = 34;                // venster-grootte
+const HIT_OFFSET = 90;                 // x van steen t.o.v. batter.x
+const SWEET_CENTER_Y = GROUND_Y - 90;  // knuppelhoogte
+const SWEET_HALF = 34;                 // venster-grootte
+
+/* --- Camera --- */
+let camX = 0;
+const CAM_LEAD = 0.35;
+const CAM_EASE = 0.08;
+let camShake = 0;               // simpele shake amplitude
+let camShakeT = 0;
 
 /* --- State --- */
 // drop -> charge (hold) -> swing -> flight -> end
@@ -99,6 +111,7 @@ const CHARGE_SPEED = 0.028;
 
 /* --- Impactplanning --- */
 let pendingHit=false, plannedV=null, locked=false;
+let flightFrames=0;            // hoeveel frames in flight sinds impact
 
 /* --- UI --- */
 const centerMsgEl = document.getElementById('centerMsg');
@@ -142,7 +155,26 @@ function setup(){
 /* --- Main loop --- */
 function draw(){
   clear();
-  drawHorizon(); drawWindFlag(); drawBatter();
+
+  /* ---- Camera volgen + shake ---- */
+  let shakeX = 0;
+  if (camShake > 0){
+    camShakeT += 0.3;
+    shakeX = Math.sin(camShakeT*12) * camShake;
+    camShake *= 0.9; // snel uitdempen
+    if (camShake < 0.1) camShake = 0;
+  }
+
+  if (phase==='flight' || phase==='swing'){
+    const target = asteroid.x - width*CAM_LEAD;
+    camX += (target - camX) * CAM_EASE;
+  } else {
+    camX += (0 - camX) * CAM_EASE;
+  }
+
+  drawHorizon(shakeX);
+  drawWindFlag();
+  drawBatter(shakeX);
 
   // HUD
   byId('mcap').textContent = `${mcap.toFixed(1)} B`;
@@ -159,42 +191,47 @@ function draw(){
 
   if(phase==='drop' || phase==='charge'){
     asteroid.y += 5;
-    // Misser-landing detectie (zodat je daarna altijd kunt herstarten)
     if (asteroid.y >= GROUND_Y - asteroid.r){
       asteroid.y = GROUND_Y - asteroid.r;
       phase='end'; showCenter('Opnieuw? Druk SPATIE'); bestDistance=Math.max(bestDistance,distance);
     }
-    drawAsteroid();
+    drawAsteroid(shakeX);
   }
   else if(phase==='swing'){
     if (pendingHit && batter.swingT >= SWING_IMPACT_T){
       asteroid.vx = plannedV.vx; asteroid.vy = plannedV.vy;
       pendingHit=false; plannedV=null;
+      flightFrames=0;
+      camShake = 6; camShakeT = 0;      // kleine impact shake
     }
-    drawAsteroid();
+    drawAsteroid(shakeX);
     batter.swingT += 0.20;
     if (batter.swingT >= 1){
       batter.swingT=0; batter.swinging=false;
-      // Als we niet geraakt hebben → terug naar vallen; landing wordt in 'drop' afgehandeld
       phase = (Math.abs(asteroid.vx)+Math.abs(asteroid.vy) > 0.001) ? 'flight' : 'drop';
     }
   }
   else if(phase==='flight'){
-    // luchtweerstand (afhankelijk van snelheid)
+    // Launch-fase: tijdelijk minder zwaartekracht & drag
+    const launchPhase = flightFrames < LAUNCH_FRAMES;
+    const g = launchPhase ? GRAVITY * LAUNCH_GRAVITY_SCALE : GRAVITY;
+    const dragCoeff = launchPhase ? DRAG_COEFF * LAUNCH_DRAG_SCALE : DRAG_COEFF;
+
+    // luchtweerstand (zwakker in launch)
     const v = Math.hypot(asteroid.vx, asteroid.vy);
-    const drag = DRAG_COEFF * v;
+    const drag = dragCoeff * v;
     asteroid.vx -= drag * asteroid.vx;
     asteroid.vy -= drag * asteroid.vy;
 
     // wind en zwaartekracht
     asteroid.vx += wind;
-    asteroid.vy += GRAVITY;
+    asteroid.vy += g;
 
     // positie
     asteroid.x += asteroid.vx;
     asteroid.y += asteroid.vy;
 
-    drawAsteroid();
+    drawAsteroid(shakeX);
 
     distance = Math.max(distance, asteroid.x - (BATTER_X + HIT_OFFSET));
     mcap = Math.max(0, distance/25);
@@ -203,38 +240,43 @@ function draw(){
       asteroid.y = GROUND_Y - asteroid.r;
       phase='end'; showCenter('Opnieuw? Druk SPATIE'); bestDistance=Math.max(bestDistance,distance);
     }
+
+    flightFrames++;
   }
   else if(phase==='end'){
-    drawAsteroid();
+    drawAsteroid(shakeX);
   }
 
   drawPowerMeter();
 }
 
-/* ===== Impactbeslissing (natuurkundiger) ===== */
+/* ===== Impactbeslissing (veel krachtiger) ===== */
 function decideImpact(){
-  // timing-venster rond knuppelhoogte
   const dy = asteroid.y - SWEET_CENTER_Y;
   const within = Math.abs(dy) <= SWEET_HALF;
   if (!within){ pendingHit=false; plannedV=null; return; }
 
-  // kwaliteit 0..1
-  const q = 1 - Math.min(1, Math.abs(dy)/SWEET_HALF);
+  const q = 1 - Math.min(1, Math.abs(dy)/SWEET_HALF); // 0..1 kwaliteit
 
-  // kracht uit charge (9..23) en kwaliteit (0.6..1.0)
-  const baseStrength = 9 + charge*(23-9);
-  const strength = baseStrength * (0.6 + 0.4*q);
+  // power-curve: maak hoge power relatief zwaarder (curve 1.2)
+  const curved = Math.pow(charge, 1.2);
 
-  // hoek uit kwaliteit (22°..58°)
-  const angle = radians(22 + 36*q);
+  // basis 18..42 met kwaliteitsschaal 0.75..1.15
+  let baseStrength = 18 + curved*(42-18);
+  baseStrength *= (0.75 + 0.40*q); // 0.75..1.15
 
-  plannedV = {
-    vx: Math.cos(angle) * strength,
-    vy: -Math.sin(angle) * strength
-  };
+  // sweet-spot bonus (middelste 20% van venster): ×1.35
+  if (Math.abs(dy) <= SWEET_HALF*0.20) {
+    baseStrength *= 1.35;
+  }
+
+  // hoek uit kwaliteit (26°..62°)
+  const angle = radians(26 + 36*q);
+
+  plannedV = { vx: Math.cos(angle)*baseStrength, vy: -Math.sin(angle)*baseStrength };
   pendingHit = true;
 
-  // elke ronde een klein beetje variabele wind
+  // kleine variatie in wind per slag
   if (Math.random() < 0.5) wind = (Math.random()*2-1) * WIND_BASE;
 }
 
@@ -249,25 +291,34 @@ function resetRound(newWind=true){
   wind = newWind ? (Math.random()*2-1) * WIND_BASE : 0;
   charge = 0; chargeDir = 1; charging = false;
   pendingHit=false; plannedV=null; locked=false;
+  camX = 0; camShake=0; camShakeT=0;
+  flightFrames=0;
 }
 
-/* ===== Tekenen ===== */
-function drawAsteroid(){
+/* ===== Tekenen (rekening houden met camX & shake) ===== */
+function drawAsteroid(shakeX=0){
+  const sx = (asteroid.x - camX) + shakeX;
   if(p5Ready && asteroidImg){
-    image(asteroidImg, asteroid.x, asteroid.y, asteroid.r*2, asteroid.r*2);
+    image(asteroidImg, sx, asteroid.y, asteroid.r*2, asteroid.r*2);
   } else if (htmlReady && htmlImg){
     const ctx = drawingContext;
     ctx.save(); ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(htmlImg, asteroid.x - asteroid.r, asteroid.y - asteroid.r, asteroid.r*2, asteroid.r*2);
+    ctx.drawImage(htmlImg, sx - asteroid.r, asteroid.y - asteroid.r, asteroid.r*2, asteroid.r*2);
     ctx.restore();
   } else {
-    noStroke(); fill(180); circle(asteroid.x, asteroid.y, asteroid.r*2);
+    noStroke(); fill(180); circle(sx, asteroid.y, asteroid.r*2);
   }
 }
-function drawHorizon(){
-  noStroke(); fill(20,30,50); rect(0,GROUND_Y,width,height-GROUND_Y);
-  stroke(80,120,200,120); line(0,GROUND_Y,width,GROUND_Y);
+
+function drawHorizon(shakeX=0){
+  const start = -100000 - camX + shakeX;
+  const w = 200000 + width;
+  noStroke(); fill(20,30,50);
+  rect(start, GROUND_Y, w, height-GROUND_Y);
+  stroke(80,120,200,120);
+  line(start, GROUND_Y, start+w, GROUND_Y);
 }
+
 function drawPowerMeter(){
   const w=260,h=14,x=width-w-20,y=20;
   noFill(); stroke(255,80); rect(x,y,w,h,8);
@@ -276,13 +327,18 @@ function drawPowerMeter(){
   rect(x+2,y+2,(w-4)*p,h-4,6);
   fill(200); textSize(12); textAlign(LEFT,TOP); text('Power (hold → release)',x,y+h+4);
 }
+
 function drawWindFlag(){
   const x=20,y=GROUND_Y-40,len=80*constrain(wind*160,-1,1);
   stroke(180,220,255,180); strokeWeight(2); line(x,y,x+len,y);
   noStroke(); fill(200); textSize(12); text('Wind',x,y-14);
 }
-function drawBatter(){
-  push(); translate(batter.x,batter.y);
+
+function drawBatter(shakeX=0){
+  const sx = (batter.x - camX) + shakeX;
+  if (sx < -60 || sx > width+60) return;
+
+  push(); translate(sx,batter.y);
   stroke(220); strokeWeight(4);
   line(0,0,-10,20); line(0,0,10,20); // benen
   line(0,-20,0,0);                   // romp
