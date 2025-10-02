@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Asteroid Dodge — ASTER OID</title>
+  <style>
+    :root{
+      --bg:#070b14; --fg:#e8f0ff; --accent:#6ee7ff; --muted:#90a0c0; --shadow:0 10px 30px rgba(0,0,0,.35);
+    }
+    html,body{height:100%;margin:0}
+    body{
+      background: radial-gradient(1200px 800px at 70% 20%, rgba(110,231,255,.06), transparent), var(--bg);
+      color:var(--fg); font-family: system-ui, sans-serif; overflow:hidden;
+    }
+    #wrap{position:fixed; inset:0; display:grid; place-items:center}
+    canvas#game{
+      width: min(100vw, 100vh*0.5625); height: min(100vh, 100vw/0.5625);
+      max-width:100vw; max-height:100vh; box-shadow: var(--shadow); border-radius: 18px; background: transparent;
+    }
+    .hud{position:fixed; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center;}
+    .panel{
+      pointer-events:auto; position:absolute; top:24px; left:50%; transform:translateX(-50%);
+      background: rgba(8,12,22,.6); border:1px solid rgba(255,255,255,.08); backdrop-filter: blur(6px);
+      padding:10px 14px; border-radius:14px; display:flex; gap:18px; align-items:center
+    }
+    .pill{background:rgba(255,255,255,.08); padding:6px 10px; border-radius:999px; font-weight:700; letter-spacing:.3px}
+    .title{position:absolute; top:50%; left:50%; transform:translate(-50%, -60%); text-align:center}
+    h1{margin:0 0 6px 0; font-size: clamp(28px, 6vw, 48px)}
+    .subtitle{opacity:.75}
+    .btn{
+      pointer-events:auto; position:absolute; bottom:24px; left:50%; transform:translateX(-50%);
+      background:linear-gradient(180deg, rgba(110,231,255,.18), rgba(110,231,255,.12));
+      border:1px solid rgba(110,231,255,.4); color:var(--fg); font-weight:700;
+      padding:12px 18px; border-radius:14px; box-shadow: var(--shadow); text-decoration:none;
+    }
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+      background: rgba(6,10,18,.65); backdrop-filter: blur(6px); z-index:5; }
+    .modal.show{ display:flex; }
+    .card{ width:min(92vw, 480px); background:rgba(10,14,24,.92);
+      border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:18px; box-shadow:var(--shadow); text-align:center; }
+    .card h2{margin:0 0 6px; font-size:28px}
+    .scoreline{font-size:22px; margin:8px 0 14px; font-weight:800; letter-spacing:.4px}
+    .nameRow{display:flex; gap:10px; margin:10px 0 14px}
+    .nameRow input{flex:1; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,.15);
+      background:rgba(255,255,255,.06); color:var(--fg);}
+    .actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+    .actions button{ padding:10px 14px; border-radius:10px; border:1px solid rgba(110,231,255,.4);
+      background:linear-gradient(180deg, rgba(110,231,255,.18), rgba(110,231,255,.12)); color:var(--fg); font-weight:700;}
+    .card.clean .nameRow, .card.clean .actions { display:none; }
+
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="1280" height="720" aria-label="Asteroid Dodge"></canvas>
+  </div>
+
+  <div class="hud" aria-live="polite">
+    <div class="panel" id="scorePanel" hidden>
+      <span class="pill">Time: <span id="score">0</span>s</span>
+      <span class="pill">Best: <span id="best">0</span>s</span>
+    </div>
+    <div class="title" id="title">
+      <h1>Asteroid Dodge</h1>
+      <div class="subtitle">Drag to move (or use ← → ↑ ↓)</div>
+    </div>
+    <button class="btn" id="startBtn">Start</button>
+  </div>
+
+  <!-- Results -->
+  <div id="resultModal" class="modal" role="dialog" aria-modal="true">
+    <div id="resultCard" class="card">
+      <h2>Game Over</h2>
+      <div id="resLine" class="scoreline">Anonymous — Survived 0s</div>
+      <div class="nameRow">
+        <input id="playerName" type="text" maxlength="24" placeholder="Your name (for the screenshot)">
+        <button id="saveNameBtn" type="button">Save</button>
+      </div>
+      <div class="actions">
+        <button id="toggleCleanBtn" type="button">Clean Screenshot Mode</button>
+        <button id="shareBtn" type="button">Share to X</button>
+        <button id="closeResultBtn" type="button">Close</button>
+      </div>
+      <div class="tiny">Tip: enable <em>Clean Screenshot Mode</em>, then take a screenshot.</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha:true });
+  const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+  // music
+  const music = new Audio('assets/intro.mp3'); music.loop = true;
+  let musicStarted=false;
+  function startMusic(){ if(!musicStarted){ music.play().catch(()=>{}); musicStarted=true; } }
+  addEventListener('pointerdown', startMusic);
+  addEventListener('keydown', startMusic);
+
+  // assets
+  const droid = new Image(); droid.src = 'assets/cz-droid.png';
+
+  // resize
+  function resize(){
+    const r = canvas.getBoundingClientRect();
+    canvas.width = Math.round(r.width*DPR);
+    canvas.height = Math.round(r.height*DPR);
+  }
+  resize(); addEventListener('resize', () => { clearTimeout(resize._t); resize._t=setTimeout(resize,100); });
+
+  // starfield (zoals je andere game)
+  const stars = [];
+  function initStars(){
+    stars.length = 0;
+    for(let i=0;i<160;i++){
+      stars.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, z: 0.3+Math.random()*0.7, r: (0.6+Math.random()*1.8)*DPR });
+    }
+  }
+  initStars();
+
+  // game state
+  let state='start';
+  let startTime=0, score=0, best=+(localStorage.getItem('dodge-best')||0);
+  const ui = {
+    panel:document.getElementById('scorePanel'),
+    score:document.getElementById('score'),
+    best:document.getElementById('best'),
+    title:document.getElementById('title'),
+    startBtn:document.getElementById('startBtn')
+  };
+  ui.best.textContent = best;
+
+  const player = { x: 200, y: 200, r: 28, speed: 520 }; // r in CSS pixels
+  const asteroids = [];
+  let spawnT = 0;
+
+  const keys = {};
+  addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if((e.code==='Space' || e.code==='Enter') && state!=='playing') begin();
+  });
+  addEventListener('keyup', e => keys[e.code] = false);
+
+  // drag / touch to move (2D)
+  let dragging = false;
+  function toLocal(evt){
+    const rect = canvas.getBoundingClientRect();
+    const p = evt.touches ? evt.touches[0] : evt;
+    return { x: (p.clientX - rect.left) * (canvas.width/rect.width) / DPR,
+             y: (p.clientY - rect.top)  * (canvas.height/rect.height) / DPR };
+  }
+  canvas.addEventListener('pointerdown', e => { dragging = true; const p=toLocal(e); player.x=p.x; player.y=p.y; });
+  addEventListener('pointermove', e => { if(!dragging) return; const p=toLocal(e); player.x=p.x; player.y=p.y; });
+  addEventListener('pointerup', ()=> dragging=false);
+  addEventListener('pointercancel', ()=> dragging=false);
+
+  ui.startBtn.addEventListener('click', begin);
+
+  function setUI(){
+    const playing = state==='playing';
+    ui.panel.hidden = !playing;
+    ui.title.style.display = playing ? 'none' : '';
+    ui.startBtn.style.display = playing ? 'none' : '';
+  }
+
+  function begin(){
+    state='playing';
+    score=0;
+    startTime = performance.now();
+    spawnT = 0;
+    asteroids.length = 0;
+    // startpositie
+    player.x = (canvas.width/DPR)/2;
+    player.y = (canvas.height/DPR) - 90;
+    setUI();
+  }
+
+  function end(){
+    state='dead';
+    if (score > best){ best = score; localStorage.setItem('dodge-best', best); }
+    ui.best.textContent = best;
+    openResultModal();
+    setUI();
+  }
+
+  function spawnAsteroid(){
+    // spawn bovenin, random x
+    const r = 16 + Math.random()*26;
+    const x = r + Math.random()*((canvas.width/DPR)-2*r);
+    const speed = 160 + Math.random()*220; // px/s
+    asteroids.push({ x, y: -r-10, r, speed });
+  }
+
+  function update(dt, ts){
+    if (state!=='playing') return;
+
+    // score op tijd (sec)
+    score = Math.floor((ts - startTime)/1000);
+    ui.score.textContent = score;
+
+    // sterretjes bewegen
+    const bgSpeed = 30 + Math.min(220, 20 + score*2); // beetje sneller over tijd
+    for(const s of stars){
+      s.x -= (bgSpeed * s.z * 0.08) * dt * DPR * 60;
+      if(s.x < -2){ s.x = canvas.width + Math.random()*40; s.y=Math.random()*canvas.height; s.z=0.3+Math.random()*0.7; }
+    }
+
+    // besturing keys
+    const pxs = player.speed * dt;
+    if(keys['ArrowLeft'] || keys['KeyA'])  player.x -= pxs;
+    if(keys['ArrowRight']|| keys['KeyD'])  player.x += pxs;
+    if(keys['ArrowUp']   || keys['KeyW'])  player.y -= pxs;
+    if(keys['ArrowDown'] || keys['KeyS'])  player.y += pxs;
+
+    // bounds
+    const minX=player.r, maxX=(canvas.width/DPR)-player.r;
+    const minY=player.r, maxY=(canvas.height/DPR)-player.r;
+    player.x = Math.max(minX, Math.min(maxX, player.x));
+    player.y = Math.max(minY, Math.min(maxY, player.y));
+
+    // spawn rate versnelt langzaam
+    spawnT += dt;
+    const interval = Math.max(0.35, 1.0 - score*0.02); // sneller naarmate je langer leeft
+    if (spawnT >= interval){ spawnT = 0; spawnAsteroid(); }
+
+    // move asteroids & collision
+    for (let i=asteroids.length-1;i>=0;i--){
+      const a = asteroids[i];
+      a.y += a.speed * dt;
+      if (a.y - a.r > canvas.height/DPR){ asteroids.splice(i,1); continue; }
+      const dx = player.x - a.x, dy = player.y - a.y;
+      if (Math.hypot(dx,dy) < player.r + a.r){ end(); }
+    }
+  }
+
+  function draw(){
+    // achtergrond gradient
+    const g=ctx.createLinearGradient(0,0,0,canvas.height);
+    g.addColorStop(0,'#091224'); g.addColorStop(1,'#05070f');
+    ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // sterren
+    for(const s of stars){
+      ctx.globalAlpha = 0.5 + s.z*0.5;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fillStyle = '#e8f0ff'; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // asteroids (placeholder cirkels)
+    ctx.fillStyle = 'rgba(200,200,200,.85)';
+    for(const a of asteroids){
+      ctx.beginPath(); ctx.arc(a.x*DPR, a.y*DPR, a.r*DPR, 0, Math.PI*2); ctx.fill();
+    }
+
+    // speler
+    ctx.save();
+    ctx.translate(player.x*DPR, player.y*DPR);
+    const rpx = player.r*DPR;
+    if (droid.complete && droid.naturalWidth){
+      const s = rpx*2;
+      ctx.drawImage(droid, -rpx, -rpx, s, s);
+    } else {
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,rpx,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  let tPrev=performance.now();
+  function loop(ts){
+    const dt=Math.min(0.033,(ts-tPrev)/1000); tPrev=ts;
+    update(dt, ts); draw(); requestAnimationFrame(loop);
+  }
+  setUI(); requestAnimationFrame(loop);
+
+  /* -------- Result modal + share -------- */
+  const resultModal = document.getElementById('resultModal');
+  const resultCard  = document.getElementById('resultCard');
+  const resLine     = document.getElementById('resLine');
+  const playerNameI = document.getElementById('playerName');
+  const saveNameBtn = document.getElementById('saveNameBtn');
+  const toggleClean = document.getElementById('toggleCleanBtn');
+  const shareBtn    = document.getElementById('shareBtn');
+  const closeResBtn = document.getElementById('closeResultBtn');
+
+  function openResultModal(){
+    const saved = localStorage.getItem('dodge-name') || '';
+    playerNameI.value = saved;
+    resLine.textContent = `${saved || 'Anonymous'} — Survived ${score}s`;
+    resultModal.classList.add('show');
+  }
+  function closeResultModal(){ resultModal.classList.remove('show'); resultCard.classList.remove('clean'); }
+  function updateResLine(){ const nm=playerNameI.value.trim()||'Anonymous'; resLine.textContent=`${nm} — Survived ${score}s`; }
+
+  saveNameBtn.addEventListener('click', ()=>{ localStorage.setItem('dodge-name', (playerNameI.value||'').trim()); updateResLine(); });
+  toggleClean.addEventListener('click', ()=> resultCard.classList.toggle('clean'));
+  closeResBtn.addEventListener('click', closeResultModal);
+
+  // X intent (synchroon, geen popup block)
+  shareBtn.addEventListener('click', ()=>{
+    const nm=(playerNameI.value.trim()||'Anonymous');
+    const text=`${nm} — Survived ${score}s\n$ASTER $OID #AsteroidDodge`;
+    const url='https://asteroidmeme.com';
+    const intent=new URL('https://twitter.com/intent/tweet');
+    intent.searchParams.set('text',text); intent.searchParams.set('url',url);
+    window.open(intent.toString(), '_blank', 'noopener');
+  });
+
+})();
+</script>
+</body>
+</html>
