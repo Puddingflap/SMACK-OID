@@ -39,7 +39,7 @@
     .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center;
       background: rgba(6,10,18,.65); backdrop-filter: blur(6px); z-index:5; }
     .modal.show{ display:flex; }
-    .card{ width:min(92vw, 480px); background:rgba(10,14,24,.92);
+    .card{ width:min(92vw, 520px); background:rgba(10,14,24,.92);
       border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:18px; box-shadow:var(--shadow); text-align:center; }
     .card h2{margin:0 0 6px; font-size:28px}
     .scoreline{font-size:22px; margin:8px 0 14px; font-weight:800; letter-spacing:.4px}
@@ -51,6 +51,15 @@
       background:linear-gradient(180deg, rgba(110,231,255,.18), rgba(110,231,255,.12)); color:var(--fg); font-weight:700;}
     .card.clean .nameRow, .card.clean .actions { display:none; }
 
+    /* Stage banner */
+    .stageToast{
+      position:absolute; top:84px; left:50%; transform:translateX(-50%);
+      background:rgba(110,231,255,.12); border:1px solid rgba(110,231,255,.35);
+      padding:8px 14px; border-radius:12px; font-weight:800; letter-spacing:.3px;
+      box-shadow: var(--shadow); display:none;
+    }
+    .stageToast.show{ display:block; animation: fade 1.8s ease forwards; }
+    @keyframes fade{ 0%{opacity:0; transform:translate(-50%,-6px)} 12%{opacity:1; transform:translate(-50%,0)} 88%{opacity:1} 100%{opacity:0} }
   </style>
 </head>
 <body>
@@ -61,12 +70,15 @@
   <div class="hud" aria-live="polite">
     <div class="panel" id="scorePanel" hidden>
       <span class="pill">Time: <span id="score">0</span>s</span>
+      <span class="pill">Mcap: <span id="mcap">0.0</span>B</span>
       <span class="pill">Best: <span id="best">0</span>s</span>
+      <span class="pill">Stage: <span id="stageName">Launch</span></span>
     </div>
     <div class="title" id="title">
       <h1>Asteroid Dodge</h1>
       <div class="subtitle">Drag to move (or use ← → ↑ ↓)</div>
     </div>
+    <div id="stageToast" class="stageToast"></div>
     <button class="btn" id="startBtn">Start</button>
   </div>
 
@@ -74,7 +86,7 @@
   <div id="resultModal" class="modal" role="dialog" aria-modal="true">
     <div id="resultCard" class="card">
       <h2>Game Over</h2>
-      <div id="resLine" class="scoreline">Anonymous — Survived 0s</div>
+      <div id="resLine" class="scoreline">Anonymous — Survived 0s — Mcap 0.0B</div>
       <div class="nameRow">
         <input id="playerName" type="text" maxlength="24" placeholder="Your name (for the screenshot)">
         <button id="saveNameBtn" type="button">Save</button>
@@ -101,8 +113,12 @@
   addEventListener('pointerdown', startMusic);
   addEventListener('keydown', startMusic);
 
-  // assets
+  // player sprite
   const droid = new Image(); droid.src = 'assets/cz-droid.png';
+
+  // 8 logos as asteroids
+  const asteroidImgs = [];
+  for(let i=1;i<=8;i++){ const im=new Image(); im.src=`assets/logo${i}.png`; asteroidImgs.push(im); }
 
   // resize
   function resize(){
@@ -112,7 +128,7 @@
   }
   resize(); addEventListener('resize', () => { clearTimeout(resize._t); resize._t=setTimeout(resize,100); });
 
-  // starfield (zoals je andere game)
+  // starfield
   const stars = [];
   function initStars(){
     stars.length = 0;
@@ -122,19 +138,32 @@
   }
   initStars();
 
-  // game state
+  // stages (thresholds in seconds)
+  const stages = [
+    { name:'Launch',         t:0,  spawnBase:1.00, speedMul:1.00, driftX:0.0, spin:0.0 },
+    { name:'Exchange Storm', t:15, spawnBase:0.85, speedMul:1.10, driftX:0.3, spin:0.8 },
+    { name:'DeFi Rain',      t:30, spawnBase:0.65, speedMul:1.22, driftX:0.6, spin:1.2 },
+    { name:'Meme Meteor',    t:45, spawnBase:0.50, speedMul:1.38, driftX:1.0, spin:1.8 },
+  ];
+  let stageIndex = 0;
+
+  // UI
   let state='start';
   let startTime=0, score=0, best=+(localStorage.getItem('dodge-best')||0);
   const ui = {
     panel:document.getElementById('scorePanel'),
     score:document.getElementById('score'),
+    mcap:document.getElementById('mcap'),
     best:document.getElementById('best'),
+    stageName:document.getElementById('stageName'),
     title:document.getElementById('title'),
-    startBtn:document.getElementById('startBtn')
+    startBtn:document.getElementById('startBtn'),
+    stageToast:document.getElementById('stageToast')
   };
   ui.best.textContent = best;
+  ui.stageName.textContent = stages[0].name;
 
-  const player = { x: 200, y: 200, r: 28, speed: 520 }; // r in CSS pixels
+  const player = { x: 200, y: 200, r: 28, speed: 520 };
   const asteroids = [];
   let spawnT = 0;
 
@@ -145,7 +174,7 @@
   });
   addEventListener('keyup', e => keys[e.code] = false);
 
-  // drag / touch to move (2D)
+  // drag / touch to move
   let dragging = false;
   function toLocal(evt){
     const rect = canvas.getBoundingClientRect();
@@ -169,11 +198,11 @@
 
   function begin(){
     state='playing';
-    score=0;
+    score=0; stageIndex=0;
+    ui.stageName.textContent = stages[0].name;
     startTime = performance.now();
     spawnT = 0;
     asteroids.length = 0;
-    // startpositie
     player.x = (canvas.width/DPR)/2;
     player.y = (canvas.height/DPR) - 90;
     setUI();
@@ -188,28 +217,54 @@
   }
 
   function spawnAsteroid(){
-    // spawn bovenin, random x
-    const r = 16 + Math.random()*26;
+    const st = stages[stageIndex];
+    const r = 20 + Math.random()*30;
     const x = r + Math.random()*((canvas.width/DPR)-2*r);
-    const speed = 160 + Math.random()*220; // px/s
-    asteroids.push({ x, y: -r-10, r, speed });
+    const speed = (160 + Math.random()*220) * st.speedMul;
+    const img = asteroidImgs[Math.floor(Math.random()*asteroidImgs.length)];
+    // beetje horizontale drift en rotatie afhankelijk van stage
+    const drift = (Math.random()*2-1) * st.driftX * (0.6 + Math.random()*1.0);
+    const angle = Math.random()*Math.PI*2;
+    const spin  = (Math.random()*2-1) * st.spin * 0.02; // rad/update
+    asteroids.push({ x, y: -r-12, r, speed, img, drift, angle, spin });
+  }
+
+  function mcapFromScore(s){
+    // speels: 0.1B per seconde
+    const b = (s * 0.1);
+    return b.toFixed(1);
+  }
+
+  function maybeAdvanceStage(sec){
+    const next = stageIndex+1;
+    if (next < stages.length && sec >= stages[next].t){
+      stageIndex = next;
+      ui.stageName.textContent = stages[stageIndex].name;
+      // toast
+      ui.stageToast.textContent = `Stage ${stageIndex+1}: ${stages[stageIndex].name}`;
+      ui.stageToast.classList.remove('show'); // retrigger
+      void ui.stageToast.offsetWidth;
+      ui.stageToast.classList.add('show');
+    }
   }
 
   function update(dt, ts){
     if (state!=='playing') return;
 
-    // score op tijd (sec)
+    // score (sec)
     score = Math.floor((ts - startTime)/1000);
     ui.score.textContent = score;
+    ui.mcap.textContent  = mcapFromScore(score);
+    maybeAdvanceStage(score);
 
-    // sterretjes bewegen
-    const bgSpeed = 30 + Math.min(220, 20 + score*2); // beetje sneller over tijd
+    // starfield speed licht mee met stage
+    const bgSpeed = 30 + stageIndex*20 + Math.min(220, 20 + score*2);
     for(const s of stars){
       s.x -= (bgSpeed * s.z * 0.08) * dt * DPR * 60;
       if(s.x < -2){ s.x = canvas.width + Math.random()*40; s.y=Math.random()*canvas.height; s.z=0.3+Math.random()*0.7; }
     }
 
-    // besturing keys
+    // keys
     const pxs = player.speed * dt;
     if(keys['ArrowLeft'] || keys['KeyA'])  player.x -= pxs;
     if(keys['ArrowRight']|| keys['KeyD'])  player.x += pxs;
@@ -222,15 +277,18 @@
     player.x = Math.max(minX, Math.min(maxX, player.x));
     player.y = Math.max(minY, Math.min(maxY, player.y));
 
-    // spawn rate versnelt langzaam
+    // spawn rate (base per stage -> sneller met score)
     spawnT += dt;
-    const interval = Math.max(0.35, 1.0 - score*0.02); // sneller naarmate je langer leeft
+    const base = stages[stageIndex].spawnBase;
+    const interval = Math.max(0.35, base - score*0.02);
     if (spawnT >= interval){ spawnT = 0; spawnAsteroid(); }
 
     // move asteroids & collision
     for (let i=asteroids.length-1;i>=0;i--){
       const a = asteroids[i];
       a.y += a.speed * dt;
+      a.x += a.drift * (dt * 60); // horizontale drift
+      a.angle += a.spin;          // rotatie
       if (a.y - a.r > canvas.height/DPR){ asteroids.splice(i,1); continue; }
       const dx = player.x - a.x, dy = player.y - a.y;
       if (Math.hypot(dx,dy) < player.r + a.r){ end(); }
@@ -238,7 +296,7 @@
   }
 
   function draw(){
-    // achtergrond gradient
+    // achtergrond
     const g=ctx.createLinearGradient(0,0,0,canvas.height);
     g.addColorStop(0,'#091224'); g.addColorStop(1,'#05070f');
     ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -250,10 +308,23 @@
     }
     ctx.globalAlpha = 1;
 
-    // asteroids (placeholder cirkels)
-    ctx.fillStyle = 'rgba(200,200,200,.85)';
+    // asteroids (logos)
     for(const a of asteroids){
-      ctx.beginPath(); ctx.arc(a.x*DPR, a.y*DPR, a.r*DPR, 0, Math.PI*2); ctx.fill();
+      const s = a.r*2*DPR;
+      const dx = (a.x - a.r)*DPR, dy = (a.y - a.r)*DPR;
+      if (a.img.complete && a.img.naturalWidth){
+        // rotate around center for some logos
+        ctx.save();
+        ctx.translate((a.x*DPR), (a.y*DPR));
+        ctx.rotate(a.angle);
+        ctx.drawImage(a.img, -a.r*DPR, -a.r*DPR, s, s);
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(a.x*DPR, a.y*DPR, a.r*DPR, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(200,200,200,.85)';
+        ctx.fill();
+      }
     }
 
     // speler
@@ -288,21 +359,26 @@
 
   function openResultModal(){
     const saved = localStorage.getItem('dodge-name') || '';
+    const mc = mcapFromScore(score);
     playerNameI.value = saved;
-    resLine.textContent = `${saved || 'Anonymous'} — Survived ${score}s`;
+    resLine.textContent = `${saved || 'Anonymous'} — Survived ${score}s — Mcap ${mc}B`;
     resultModal.classList.add('show');
   }
   function closeResultModal(){ resultModal.classList.remove('show'); resultCard.classList.remove('clean'); }
-  function updateResLine(){ const nm=playerNameI.value.trim()||'Anonymous'; resLine.textContent=`${nm} — Survived ${score}s`; }
+  function updateResLine(){
+    const nm=playerNameI.value.trim()||'Anonymous';
+    const mc=mcapFromScore(score);
+    resLine.textContent=`${nm} — Survived ${score}s — Mcap ${mc}B`;
+  }
 
   saveNameBtn.addEventListener('click', ()=>{ localStorage.setItem('dodge-name', (playerNameI.value||'').trim()); updateResLine(); });
   toggleClean.addEventListener('click', ()=> resultCard.classList.toggle('clean'));
   closeResBtn.addEventListener('click', closeResultModal);
 
-  // X intent (synchroon, geen popup block)
   shareBtn.addEventListener('click', ()=>{
     const nm=(playerNameI.value.trim()||'Anonymous');
-    const text=`${nm} — Survived ${score}s\n$ASTER $OID #AsteroidDodge`;
+    const mc=mcapFromScore(score);
+    const text=`${nm} — Survived ${score}s — Mcap ${mc}B\n$ASTER $OID #AsteroidDodge`;
     const url='https://asteroidmeme.com';
     const intent=new URL('https://twitter.com/intent/tweet');
     intent.searchParams.set('text',text); intent.searchParams.set('url',url);
