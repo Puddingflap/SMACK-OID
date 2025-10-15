@@ -12,7 +12,7 @@
     body{
       background: radial-gradient(1200px 800px at 70% 20%, rgba(110,231,255,.06), transparent), var(--bg);
       color:var(--fg); font-family: system-ui, sans-serif; overflow:hidden;
-      -webkit-tap-highlight-color: transparent; /* Voorkomt blauwe gloed bij tikken op mobiel */
+      -webkit-tap-highlight-color: transparent;
     }
     #wrap{position:fixed; inset:0; display:grid; place-items:center}
     canvas#game{
@@ -35,8 +35,6 @@
       border:1px solid rgba(110,231,255,.4); color:var(--fg); font-weight:700;
       padding:12px 18px; border-radius:14px; box-shadow: var(--shadow); text-decoration:none;
     }
-
-    /* Modal */
     .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center;
       background: rgba(6,10,18,.65); backdrop-filter: blur(6px); z-index:5; }
     .modal.show{ display:flex; }
@@ -74,7 +72,7 @@
 
   <div id="resultModal" class="modal" role="dialog" aria-modal="true">
     <div id="resultCard" class="card">
-      <h2>Game Over</h2>
+      <h2 id="resultTitle">Game Over</h2>
       <div id="resLine" class="scoreline">Anonymous — Final Mcap: 0B</div>
       <div class="nameRow">
         <input id="playerName" type="text" maxlength="24" placeholder="Your name (for the screenshot)">
@@ -109,43 +107,21 @@
   
   // --- STAGE & BOSS SETUP ---
   const STAGES = [
-    // Stage 1 is actief, want je hebt boss_sam.png
+    // Stage 1 (actief)
     { mcapTrigger: 5, stageName: "Stage 1: The FTX Arena", boss: {
       imgSrc: 'assets/boss_sam.png', health: 25, size: 60,
       shootInterval: 2.0, bulletSpeed: 150, movement: 'sideToSide' }},
     
-    /* --- Schakel tijdelijk de andere stages uit tot je de afbeeldingen hebt ---
-    { mcapTrigger: 15, stageName: "Stage 2: Terra Luna Crash Site", boss: {
+    // Schakel volgende stages in door de '/*' en '*/' te verwijderen
+    /* { mcapTrigger: 15, stageName: "Stage 2: Terra Luna Crash Site", boss: {
       imgSrc: 'assets/boss_do.png', health: 40, size: 65,
       shootInterval: 1.7, bulletSpeed: 180, movement: 'sideToSide' }},
     { mcapTrigger: 30, stageName: "Stage 3: Celsius Network Abyss", boss: {
       imgSrc: 'assets/boss_alex.png', health: 60, size: 70,
       shootInterval: 1.5, bulletSpeed: 200, movement: 'sideToSide' }},
-    { mcapTrigger: 50, stageName: "Stage 4: Mt. Gox Ruins", boss: {
-      imgSrc: 'assets/boss_mark.png', health: 80, size: 70,
-      shootInterval: 1.3, bulletSpeed: 220, movement: 'sideToSide' }},
-    { mcapTrigger: 75, stageName: "Stage 5: The Bitconnect Void", boss: {
-      imgSrc: 'assets/boss_carlos.png', health: 100, size: 75,
-      shootInterval: 1.1, bulletSpeed: 250, movement: 'swoop' }},
-    { mcapTrigger: 100, stageName: "Stage 6: Quadriga CX Mystery", boss: {
-      imgSrc: 'assets/boss_gerry.png', health: 125, size: 75,
-      shootInterval: 1.0, bulletSpeed: 270, movement: 'swoop' }},
-    { mcapTrigger: 130, stageName: "Stage 7: The Regulatory Maze", boss: {
-      imgSrc: 'assets/boss_gary.png', health: 150, size: 80,
-      shootInterval: 0.9, bulletSpeed: 290, movement: 'sideToSide' }},
-    { mcapTrigger: 160, stageName: "Stage 8: The Inflation Monster", boss: {
-      imgSrc: 'assets/boss_jerome.png', health: 180, size: 80,
-      shootInterval: 0.8, bulletSpeed: 310, movement: 'swoop' }},
-    { mcapTrigger: 200, stageName: "Stage 9: The Bear Market Giant", boss: {
-      imgSrc: 'assets/enemy_bear.png', health: 220, size: 85,
-      shootInterval: 0.7, bulletSpeed: 330, movement: 'sideToSide' }},
-    { mcapTrigger: 250, stageName: "Final Stage: The Satoshi Enigma", boss: {
-      imgSrc: 'assets/boss_satoshi.png', health: 300, size: 90,
-      shootInterval: 0.6, bulletSpeed: 350, movement: 'swoop' }},
     */
-  ];
+  ]; // BELANGRIJK: DEZE BRACKET MOET BUITEN HET COMMENTAAR BLIJVEN
 
-  // Laad de baas-afbeeldingen vooraf
   const bossImgs = {};
   STAGES.forEach(stage => {
       if (!bossImgs[stage.boss.imgSrc]) {
@@ -155,7 +131,6 @@
       }
   });
 
-  // --- RESIZE & STARFIELD ---
   function resize(){
     const r = canvas.getBoundingClientRect();
     canvas.width = Math.round(r.width*DPR);
@@ -165,35 +140,27 @@
   
   const stars = Array.from({length:160}, () => ({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, z: 0.3+Math.random()*0.7, r: (0.6+Math.random()*1.8)*DPR }));
 
-  // --- GAME STATE & UI ---
   let state='start', score=0, lives=3, best=+(localStorage.getItem('offensive-best')||0);
-  let currentStage = 1, bossActive = false, boss = null;
+  let currentStage = 0, bossActive = false, boss = null;
   const ui = {
-    panel:document.getElementById('scorePanel'),
-    mcap:document.getElementById('mcap'),
-    lives:document.getElementById('lives'),
-    best:document.getElementById('best'),
-    title:document.getElementById('title'),
-    startBtn:document.getElementById('startBtn'),
+    panel:document.getElementById('scorePanel'), mcap:document.getElementById('mcap'),
+    lives:document.getElementById('lives'), best:document.getElementById('best'),
+    title:document.getElementById('title'), startBtn:document.getElementById('startBtn'),
+    resultTitle: document.getElementById('resultTitle'),
   };
   ui.best.textContent = best.toFixed(1);
 
-  // --- GAME OBJECTS ---
   const player = { x: 200, y: 200, r: 40, speed: 400, shield: false };
   const bullets = [], enemies = [], powerups = [], particles = [], enemyBullets = [];
   let spawnT = 0, shootCooldown = 0, onScreenMessage = { text: '', life: 0 };
 
-  // --- CONTROLS ---
   const keys = {};
   window.addEventListener('keydown', e => {
     keys[e.code] = true;
     if (e.code === 'Space') {
       e.preventDefault();
-      if (state === 'start' || state === 'dead') {
-        begin();
-      } else if (state === 'playing') {
-        shoot();
-      }
+      if (state === 'start' || state === 'dead') begin();
+      else if (state === 'playing') shoot();
     }
   });
   window.addEventListener('keyup', e => keys[e.code] = false);
@@ -201,20 +168,15 @@
   let dragging = false;
   let isTapToShoot = false;
   canvas.addEventListener('pointerdown', e => {
-    dragging = true;
-    isTapToShoot = true;
-    const p = toLocal(e);
-    player.x = p.x; player.y = p.y;
+    dragging = true; isTapToShoot = true;
+    const p = toLocal(e); player.x = p.x; player.y = p.y;
   });
   window.addEventListener('pointermove', e => {
-    if(!dragging) return;
-    isTapToShoot = false;
-    const p = toLocal(e);
-    player.x = p.x; player.y = p.y;
+    if(!dragging) return; isTapToShoot = false;
+    const p = toLocal(e); player.x = p.x; player.y = p.y;
   });
   window.addEventListener('pointerup', () => {
-    if (dragging && isTapToShoot) shoot();
-    dragging = false;
+    if (dragging && isTapToShoot) shoot(); dragging = false;
   });
   function toLocal(evt){
     const rect = canvas.getBoundingClientRect();
@@ -230,7 +192,6 @@
     shootCooldown = 0.25;
   }
 
-  // --- GAME LOGIC ---
   function begin(){
     state='playing'; score=0; lives=3;
     ui.mcap.textContent = '0.0'; ui.lives.textContent = '3';
@@ -239,7 +200,7 @@
     particles.length = 0; enemyBullets.length = 0;
     player.x = (canvas.width/DPR)/2; player.y = (canvas.height/DPR) - 90;
     player.shield = false;
-    currentStage = 1; bossActive = false; boss = null;
+    currentStage = 0; bossActive = false; boss = null;
     showMessage(`Stage 1`, 3);
     setUI();
   }
@@ -249,24 +210,21 @@
     lives--;
     ui.lives.textContent = lives;
     createExplosion(player.x, player.y, '#ff6e6e', 30);
-    if (lives <= 0) end();
+    if (lives <= 0) end("Game Over");
   }
 
-  function end(){
+  function end(title){
     state='dead';
+    ui.resultTitle.textContent = title;
     if (score > best){ best = score; localStorage.setItem('offensive-best', best); }
     ui.best.textContent = best.toFixed(1);
-    if (currentStage <= STAGES.length) {
-        openResultModal();
-    }
+    openResultModal();
   }
 
-  function spawnBoss(stageNum) {
-    if (stageNum > STAGES.length) return winGame();
+  function spawnBoss() {
+    const stageData = STAGES[currentStage];
     bossActive = true;
     enemies.length = 0;
-    const stageData = STAGES[stageNum - 1];
-    
     boss = {
       ...stageData.boss,
       x: (canvas.width / DPR) / 2, y: -100,
@@ -285,17 +243,16 @@
     boss = null;
     currentStage++;
     
-    if (currentStage > STAGES.length) {
-      winGame();
+    // GECORRIGEERDE LOGICA: Check of er een volgende stage bestaat
+    if (STAGES[currentStage]) {
+      showMessage(STAGES[currentStage].stageName, 3);
     } else {
-      showMessage(STAGES[currentStage-1].stageName, 3);
+      winGame();
     }
   }
 
   function winGame() {
-      state = 'dead';
-      showMessage('CONGRATULATIONS!', 999);
-      setTimeout(openResultModal, 1000);
+    setTimeout(() => end("CONGRATULATIONS!"), 500);
   }
 
   function showMessage(text, duration) {
@@ -305,7 +262,7 @@
   function spawnEnemy(){
     const r = 20 + Math.random()*25;
     const x = r + Math.random()*((canvas.width/DPR)-2*r);
-    const speed = 80 + Math.random()*100 + score * 2;
+    const speed = 80 + Math.random()*100 + score * 2 + currentStage * 20;
     const img = enemyImgs[Math.floor(Math.random()*enemyImgs.length)];
     enemies.push({ x, y: -r, r, speed, img });
   }
@@ -322,24 +279,20 @@
         const speed = 50 + Math.random() * 150;
         particles.push({
             x, y,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            radius: 2 + Math.random() * 3,
-            life: 0.5 + Math.random() * 0.5,
-            color: color
+            vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+            radius: 2 + Math.random() * 3, life: 0.5 + Math.random() * 0.5, color: color
         });
     }
   }
 
   function update(dt){
     if (state!=='playing') return;
-
     if (onScreenMessage.life > 0) onScreenMessage.life -= dt;
 
     if (bossActive && boss) {
       if (boss.entryTime > 0) {
         boss.entryTime -= dt;
-        boss.y += (150 - boss.y) * 0.05;
+        boss.y = Math.min(150, boss.y + 200 * dt);
       } else {
         const speed = Date.now() / 1000;
         const canvasW = canvas.width / DPR;
@@ -349,20 +302,19 @@
         } else {
             boss.x = canvasW/2 + Math.sin(speed) * (canvasW*0.4);
         }
-
         boss.shootCooldown -= dt;
         if (boss.shootCooldown <= 0) {
-          enemyBullets.push({ x: boss.x, y: boss.y, r: 8, vx: 0, vy: boss.bulletSpeed });
+          enemyBullets.push({ x: boss.x, y: boss.y + boss.size/2, w: 5, h: 15, vy: boss.bulletSpeed });
           boss.shootCooldown = boss.shootInterval;
         }
       }
     } else {
       spawnT += dt;
-      const interval = Math.max(0.4, 1.5 - (score * 0.05) - (currentStage * 0.1));
-      if (spawnT >= interval){ spawnT = 0; spawnEnemy(); if (Math.random() < 0.1) spawnPowerup(); }
+      const interval = Math.max(0.3, 1.2 - (score * 0.05) - (currentStage * 0.1));
+      if (spawnT >= interval){ spawnT = 0; spawnEnemy(); if (Math.random() < 0.05) spawnPowerup(); }
       
-      if (currentStage <= STAGES.length && score >= STAGES[currentStage - 1].mcapTrigger) {
-        spawnBoss(currentStage);
+      if (STAGES[currentStage] && score >= STAGES[currentStage].mcapTrigger) {
+        spawnBoss();
       }
     }
 
@@ -376,23 +328,16 @@
     player.y = Math.max(player.r, Math.min((canvas.height/DPR)-player.r, player.y));
 
     for (let i=bullets.length-1; i>=0; i--){
-      const b = bullets[i];
-      b.y -= 600 * dt;
-      if (b.y < -b.r) bullets.splice(i,1);
+      bullets[i].y -= 600 * dt;
+      if (bullets[i].y < -bullets[i].r) bullets.splice(i,1);
     }
     
     for (let i=enemies.length-1; i>=0; i--){
       const e = enemies[i];
       e.y += e.speed * dt;
-      if (e.y - e.r > canvas.height/DPR){
-          enemies.splice(i,1);
-          loseLife();
-          continue;
-      }
+      if (e.y - e.r > canvas.height/DPR){ enemies.splice(i,1); loseLife(); continue; }
       if (Math.hypot(player.x - e.x, player.y - e.y) < player.r + e.r){
-          enemies.splice(i,1);
-          createExplosion(e.x, e.y);
-          loseLife();
+        enemies.splice(i,1); createExplosion(e.x, e.y); loseLife();
       }
     }
 
@@ -400,7 +345,8 @@
         const eb = enemyBullets[i];
         eb.y += eb.vy * dt;
         if (eb.y > canvas.height/DPR) { enemyBullets.splice(i,1); continue; }
-        if (Math.hypot(player.x - eb.x, player.y - eb.y) < player.r + eb.r) {
+        if (player.x > eb.x - player.r && player.x < eb.x + eb.w + player.r &&
+            player.y > eb.y - player.r && player.y < eb.y + eb.h + player.r) {
             enemyBullets.splice(i,1);
             loseLife();
         }
@@ -411,8 +357,7 @@
         p.y += p.speed * dt;
         if (p.y - p.r > canvas.height / DPR) { powerups.splice(i, 1); continue; }
         if (Math.hypot(player.x - p.x, player.y - p.y) < player.r + p.r) {
-            powerups.splice(i, 1);
-            player.shield = true;
+            powerups.splice(i, 1); player.shield = true;
             setTimeout(() => { player.shield = false; }, 5000);
         }
     }
@@ -421,8 +366,7 @@
         const p = particles[i];
         p.life -= dt;
         if (p.life <= 0) { particles.splice(i, 1); continue; }
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt;
     }
 
     for (let i=bullets.length-1; i>=0; i--){
@@ -430,12 +374,8 @@
         if (!bullets[i] || !enemies[j]) continue;
         const b = bullets[i], e = enemies[j];
         if (Math.hypot(b.x - e.x, b.y - e.y) < b.r + e.r){
-          createExplosion(e.x, e.y);
-          bullets.splice(i,1);
-          enemies.splice(j,1);
-          score += 0.1;
-          ui.mcap.textContent = score.toFixed(1);
-          break;
+          createExplosion(e.x, e.y); bullets.splice(i,1); enemies.splice(j,1);
+          score += 0.1; ui.mcap.textContent = score.toFixed(1); break;
         }
       }
     }
@@ -443,14 +383,9 @@
     if (bossActive && boss) {
       for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
-        if (Math.hypot(b.x - boss.x, b.y - boss.y) < b.r + boss.size) {
-          bullets.splice(i, 1);
-          boss.health--;
-          createExplosion(b.x, b.y, '#ffffff', 5);
-          if (boss.health <= 0) {
-            defeatBoss();
-            break;
-          }
+        if (Math.hypot(b.x - boss.x, b.y - boss.y) < b.r + boss.size/2) {
+          bullets.splice(i, 1); boss.health--; createExplosion(b.x, b.y, '#ffffff', 5);
+          if (boss.health <= 0) { defeatBoss(); break; }
         }
       }
     }
@@ -522,7 +457,7 @@
       
       ctx.fillStyle = '#ff4d4d';
       for(const eb of enemyBullets) {
-          ctx.beginPath(); ctx.arc(eb.x * DPR, eb.y * DPR, eb.r * DPR, 0, Math.PI * 2); ctx.fill();
+          ctx.fillRect((eb.x - eb.w/2) * DPR, eb.y * DPR, eb.w * DPR, eb.h * DPR);
       }
     }
     
@@ -560,7 +495,6 @@
   setUI();
   requestAnimationFrame(loop);
 
-  /* -------- Result modal + share -------- */
   const resultModal = document.getElementById('resultModal');
   const resLine = document.getElementById('resLine');
   const playerNameI = document.getElementById('playerName');
