@@ -106,29 +106,31 @@
   powerupImgs.shield.src = 'assets/powerup_shield_bnb.png';
   
   // --- STAGE & BOSS SETUP ---
-  const STAGES = [
-    // Stage 1 (actief)
-    { mcapTrigger: 5, stageName: "Stage 1: The FTX Arena", boss: {
-      imgSrc: 'assets/boss_sam.png', health: 25, size: 60,
-      shootInterval: 2.0, bulletSpeed: 150, movement: 'sideToSide' }},
-    
-    // Schakel volgende stages in door de '/*' en '*/' te verwijderen
-    /* { mcapTrigger: 15, stageName: "Stage 2: Terra Luna Crash Site", boss: {
-      imgSrc: 'assets/boss_do.png', health: 40, size: 65,
-      shootInterval: 1.7, bulletSpeed: 180, movement: 'sideToSide' }},
-    { mcapTrigger: 30, stageName: "Stage 3: Celsius Network Abyss", boss: {
-      imgSrc: 'assets/boss_trump.png', health: 60, size: 70,
-      shootInterval: 1.5, bulletSpeed: 200, movement: 'sideToSide' }},
-    */
-  ]; // BELANGRIJK: DEZE BRACKET MOET BUITEN HET COMMENTAAR BLIJVEN
+  const ALL_STAGES = [
+    { mcapTrigger: 5, stageName: "Stage 1: The FTX Arena", boss: { imgSrc: 'assets/boss_sam.png', health: 25, size: 60, shootInterval: 2.0, bulletSpeed: 150, movement: 'sideToSide' }},
+    { mcapTrigger: 15, stageName: "Stage 2: Terra Luna Crash Site", boss: { imgSrc: 'assets/boss_do.png', health: 40, size: 65, shootInterval: 1.7, bulletSpeed: 180, movement: 'sideToSide' }},
+    { mcapTrigger: 30, stageName: "Stage 3: Celsius Network Abyss", boss: { imgSrc: 'assets/boss_trump.png', health: 60, size: 70, shootInterval: 1.5, bulletSpeed: 200, movement: 'sideToSide' }},
+    { mcapTrigger: 50, stageName: "Stage 4: Mt. Gox Ruins", boss: { imgSrc: 'assets/boss_mark.png', health: 80, size: 70, shootInterval: 1.3, bulletSpeed: 220, movement: 'sideToSide' }},
+    { mcapTrigger: 75, stageName: "Stage 5: The Bitconnect Void", boss: { imgSrc: 'assets/boss_carlos.png', health: 100, size: 75, shootInterval: 1.1, bulletSpeed: 250, movement: 'swoop' }},
+    { mcapTrigger: 100, stageName: "Stage 6: Quadriga CX Mystery", boss: { imgSrc: 'assets/boss_gerry.png', health: 125, size: 75, shootInterval: 1.0, bulletSpeed: 270, movement: 'swoop' }},
+    { mcapTrigger: 130, stageName: "Stage 7: The Regulatory Maze", boss: { imgSrc: 'assets/boss_gary.png', health: 150, size: 80, shootInterval: 0.9, bulletSpeed: 290, movement: 'sideToSide' }},
+    { mcapTrigger: 160, stageName: "Stage 8: The Inflation Monster", boss: { imgSrc: 'assets/boss_jerome.png', health: 180, size: 80, shootInterval: 0.8, bulletSpeed: 310, movement: 'swoop' }},
+    { mcapTrigger: 200, stageName: "Stage 9: The Bear Market Giant", boss: { imgSrc: 'assets/enemy_bear.png', health: 220, size: 85, shootInterval: 0.7, bulletSpeed: 330, movement: 'sideToSide' }},
+    { mcapTrigger: 250, stageName: "Final Stage: The Satoshi Enigma", boss: { imgSrc: 'assets/boss_satoshi.png', health: 300, size: 90, shootInterval: 0.6, bulletSpeed: 350, movement: 'swoop' }},
+  ];
+  
+  // Maak een lijst van alleen de stages die je nu wilt gebruiken
+  const ACTIVE_STAGES = [
+      ALL_STAGES[0], // Stage 1
+      // ALL_STAGES[1], // Verwijder '//' om Stage 2 te activeren
+      // ALL_STAGES[2], // Verwijder '//' om Stage 3 te activeren
+  ];
 
   const bossImgs = {};
-  STAGES.forEach(stage => {
-      if (!bossImgs[stage.boss.imgSrc]) {
-          const img = new Image();
-          img.src = stage.boss.imgSrc;
-          bossImgs[stage.boss.imgSrc] = img;
-      }
+  ALL_STAGES.forEach(stage => {
+      const img = new Image();
+      img.src = stage.boss.imgSrc;
+      bossImgs[stage.boss.imgSrc] = img;
   });
 
   function resize(){
@@ -141,7 +143,7 @@
   const stars = Array.from({length:160}, () => ({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, z: 0.3+Math.random()*0.7, r: (0.6+Math.random()*1.8)*DPR }));
 
   let state='start', score=0, lives=3, best=+(localStorage.getItem('offensive-best')||0);
-  let currentStage = 0, bossActive = false, boss = null;
+  let currentStageIndex = 0, bossActive = false, boss = null;
   const ui = {
     panel:document.getElementById('scorePanel'), mcap:document.getElementById('mcap'),
     lives:document.getElementById('lives'), best:document.getElementById('best'),
@@ -200,8 +202,8 @@
     particles.length = 0; enemyBullets.length = 0;
     player.x = (canvas.width/DPR)/2; player.y = (canvas.height/DPR) - 90;
     player.shield = false;
-    currentStage = 0; bossActive = false; boss = null;
-    showMessage(`Stage 1`, 3);
+    currentStageIndex = 0; bossActive = false; boss = null;
+    showMessage(ACTIVE_STAGES[0].stageName, 3);
     setUI();
   }
 
@@ -222,7 +224,7 @@
   }
 
   function spawnBoss() {
-    const stageData = STAGES[currentStage];
+    const stageData = ACTIVE_STAGES[currentStageIndex];
     bossActive = true;
     enemies.length = 0;
     boss = {
@@ -241,18 +243,24 @@
     ui.mcap.textContent = score.toFixed(1);
     bossActive = false;
     boss = null;
-    currentStage++;
     
-    // GECORRIGEERDE LOGICA: Check of er een volgende stage bestaat
-    if (STAGES[currentStage]) {
-      showMessage(STAGES[currentStage].stageName, 3);
-    } else {
+    const wasFinalBoss = currentStageIndex === (ALL_STAGES.length - 1);
+    if (wasFinalBoss) {
       winGame();
+      return;
+    }
+    
+    currentStageIndex++;
+    
+    if (ACTIVE_STAGES[currentStageIndex]) {
+      showMessage(ACTIVE_STAGES[currentStageIndex].stageName, 3);
+    } else {
+      // Gaat verder zonder nieuwe stage tot de volgende Mcap trigger
     }
   }
 
   function winGame() {
-    setTimeout(() => end("CONGRATULATIONS!"), 500);
+      setTimeout(() => end("CONGRATULATIONS!"), 500);
   }
 
   function showMessage(text, duration) {
@@ -262,7 +270,7 @@
   function spawnEnemy(){
     const r = 20 + Math.random()*25;
     const x = r + Math.random()*((canvas.width/DPR)-2*r);
-    const speed = 80 + Math.random()*100 + score * 2 + currentStage * 20;
+    const speed = 80 + Math.random()*100 + score * 2 + currentStageIndex * 20;
     const img = enemyImgs[Math.floor(Math.random()*enemyImgs.length)];
     enemies.push({ x, y: -r, r, speed, img });
   }
@@ -310,10 +318,10 @@
       }
     } else {
       spawnT += dt;
-      const interval = Math.max(0.3, 1.2 - (score * 0.05) - (currentStage * 0.1));
+      const interval = Math.max(0.3, 1.2 - (score * 0.05) - (currentStageIndex * 0.1));
       if (spawnT >= interval){ spawnT = 0; spawnEnemy(); if (Math.random() < 0.05) spawnPowerup(); }
       
-      if (STAGES[currentStage] && score >= STAGES[currentStage].mcapTrigger) {
+      if (ACTIVE_STAGES[currentStageIndex] && score >= ACTIVE_STAGES[currentStageIndex].mcapTrigger) {
         spawnBoss();
       }
     }
@@ -529,4 +537,3 @@
 </script>
 </body>
 </html>
-
